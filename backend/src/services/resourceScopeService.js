@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const AppError = require("../utils/AppError");
 
 // Resolves the owning company_id for a resource, following the exact
 // chains described for this phase (tour.company_id direct;
@@ -26,6 +27,29 @@ async function getParticipantCompanyId(participantId) {
   return result.rows[0] ? result.rows[0].company_id : null;
 }
 
+async function getTourDayCompanyId(tourDayId) {
+  const result = await pool.query(
+    `SELECT t.company_id
+     FROM tour_days td
+     JOIN tours t ON t.id = td.tour_id
+     WHERE td.id = $1`,
+    [tourDayId]
+  );
+  return result.rows[0] ? result.rows[0].company_id : null;
+}
+
+async function getActivityCompanyId(activityId) {
+  const result = await pool.query(
+    `SELECT t.company_id
+     FROM activities a
+     JOIN tour_days td ON td.id = a.tour_day_id
+     JOIN tours t ON t.id = td.tour_id
+     WHERE a.id = $1`,
+    [activityId]
+  );
+  return result.rows[0] ? result.rows[0].company_id : null;
+}
+
 async function getFlightCompanyId(flightId) {
   const result = await pool.query(
     `SELECT t.company_id
@@ -44,6 +68,18 @@ async function getHotelCompanyId(hotelId) {
      JOIN tours t ON t.id = h.tour_id
      WHERE h.id = $1`,
     [hotelId]
+  );
+  return result.rows[0] ? result.rows[0].company_id : null;
+}
+
+async function getHotelRoomCompanyId(roomId) {
+  const result = await pool.query(
+    `SELECT t.company_id
+     FROM hotel_rooms hr
+     JOIN hotels h ON h.id = hr.hotel_id
+     JOIN tours t ON t.id = h.tour_id
+     WHERE hr.id = $1`,
+    [roomId]
   );
   return result.rows[0] ? result.rows[0].company_id : null;
 }
@@ -94,45 +130,49 @@ async function getFinanceTransactionParticipantId(financeTransactionId) {
   return result.rows[0] ? result.rows[0].participant_id : null;
 }
 
+async function getCompanyUserCompanyId(companyUserId) {
+  const result = await pool.query(
+    "SELECT company_id FROM company_users WHERE id = $1",
+    [companyUserId]
+  );
+  return result.rows[0] ? result.rows[0].company_id : null;
+}
+
+async function getRoleCompanyId(roleId) {
+  const result = await pool.query(
+    "SELECT company_id FROM roles WHERE id = $1",
+    [roleId]
+  );
+  // NULL company_id on a role row means it's a global role, not "no
+  // such role" -- callers decide separately whether global roles are
+  // allowed for the operation in question.
+  return result.rows[0] ? result.rows[0].company_id : undefined;
+}
+
 // Staff-side resource scoping: the resolved owning company must match
 // the caller's authenticated company membership (req.membership, set
 // by requireCompanyMembership). 404 on mismatch or not-found, never
 // 403 -- confirming "this exists but isn't yours" leaks more than a
 // plain "not found" does, and the master spec calls this out
 // explicitly for cross-tenant access.
-//
-// Usage: router.get("/api/tours/:id/flights/:flightId", authMiddleware,
-//   requireCompanyMembership, requirePermission("flights.read"),
-//   requireResourceOwnership(getFlightCompanyId, "flightId"), controller)
 function requireResourceOwnership(resolver, paramName = "id") {
   return async (req, res, next) => {
-    const resourceId = Number(req.params[paramName]);
-
-    if (!resourceId) {
-      return res.status(404).json({
-        success: false,
-        message: "Kaynak bulunamadı.",
-      });
-    }
-
     try {
+      const resourceId = Number(req.params[paramName]);
+
+      if (!resourceId) {
+        throw new AppError(404, "RESOURCE_NOT_FOUND", "Kaynak bulunamadı.");
+      }
+
       const ownerCompanyId = await resolver(resourceId);
 
       if (ownerCompanyId === null || ownerCompanyId !== req.membership.companyId) {
-        return res.status(404).json({
-          success: false,
-          message: "Kaynak bulunamadı.",
-        });
+        throw new AppError(404, "RESOURCE_NOT_FOUND", "Kaynak bulunamadı.");
       }
 
       next();
     } catch (error) {
-      console.error("Resource ownership check error:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: "Kaynak erişimi kontrol edilirken beklenmeyen bir hata oluştu.",
-      });
+      next(error);
     }
   };
 }
@@ -140,12 +180,17 @@ function requireResourceOwnership(resolver, paramName = "id") {
 module.exports = {
   getTourCompanyId,
   getParticipantCompanyId,
+  getTourDayCompanyId,
+  getActivityCompanyId,
   getFlightCompanyId,
   getHotelCompanyId,
+  getHotelRoomCompanyId,
   getAnnouncementCompanyId,
   getDocumentCompanyId,
   getDocumentParticipantId,
   getFinanceTransactionCompanyId,
   getFinanceTransactionParticipantId,
+  getCompanyUserCompanyId,
+  getRoleCompanyId,
   requireResourceOwnership,
 };

@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const AppError = require("../utils/AppError");
 
 // Participant-side access. Deliberately separate from
 // resourceScopeService/companyMiddleware: a participant is never a
@@ -6,10 +7,6 @@ const pool = require("../config/db");
 // also be one (Phase 6 allows both to exist independently). These
 // helpers never consult company_users or role_permissions -- they
 // only ever ask "does participants.user_id = the caller own this."
-//
-// Usage for a /api/me/tours/:tourId/* style route:
-//   router.get("/api/me/tours/:tourId/program", authMiddleware,
-//     requireParticipantTourAccess, controller)
 
 async function getParticipantIdsForUser(userId) {
   const result = await pool.query(
@@ -25,18 +22,15 @@ async function getParticipantIdsForUser(userId) {
 // a tour id that exists elsewhere in the system is indistinguishable
 // from one that doesn't exist at all.
 const requireParticipantTourAccess = async (req, res, next) => {
-  const tourId = Number(req.params.tourId);
-
-  if (!tourId) {
-    return res.status(404).json({
-      success: false,
-      message: "Tur bulunamadı.",
-    });
-  }
-
   try {
+    const tourId = Number(req.params.tourId);
+
+    if (!tourId) {
+      throw new AppError(404, "TOUR_NOT_FOUND", "Tur bulunamadı.");
+    }
+
     const result = await pool.query(
-      `SELECT 1
+      `SELECT tp.participant_id
        FROM tour_participants tp
        JOIN participants p ON p.id = tp.participant_id
        WHERE p.user_id = $1 AND tp.tour_id = $2`,
@@ -44,20 +38,17 @@ const requireParticipantTourAccess = async (req, res, next) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Tur bulunamadı.",
-      });
+      throw new AppError(404, "TOUR_NOT_FOUND", "Tur bulunamadı.");
     }
+
+    req.participantScope = {
+      tourId,
+      participantId: result.rows[0].participant_id,
+    };
 
     next();
   } catch (error) {
-    console.error("Participant tour access check error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Erişim kontrol edilirken beklenmeyen bir hata oluştu.",
-    });
+    next(error);
   }
 };
 
@@ -68,34 +59,23 @@ const requireParticipantTourAccess = async (req, res, next) => {
 // owning participant_id (or null).
 function requireOwnParticipantResource(resolver, paramName = "id") {
   return async (req, res, next) => {
-    const resourceId = Number(req.params[paramName]);
-
-    if (!resourceId) {
-      return res.status(404).json({
-        success: false,
-        message: "Kaynak bulunamadı.",
-      });
-    }
-
     try {
+      const resourceId = Number(req.params[paramName]);
+
+      if (!resourceId) {
+        throw new AppError(404, "RESOURCE_NOT_FOUND", "Kaynak bulunamadı.");
+      }
+
       const ownerParticipantId = await resolver(resourceId);
       const myParticipantIds = await getParticipantIdsForUser(req.user.id);
 
       if (ownerParticipantId === null || !myParticipantIds.includes(ownerParticipantId)) {
-        return res.status(404).json({
-          success: false,
-          message: "Kaynak bulunamadı.",
-        });
+        throw new AppError(404, "RESOURCE_NOT_FOUND", "Kaynak bulunamadı.");
       }
 
       next();
     } catch (error) {
-      console.error("Participant resource ownership check error:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: "Kaynak erişimi kontrol edilirken beklenmeyen bir hata oluştu.",
-      });
+      next(error);
     }
   };
 }

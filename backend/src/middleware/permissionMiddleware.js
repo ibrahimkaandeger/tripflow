@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const AppError = require("../utils/AppError");
 
 // Permission-based, not role-name-based: this never checks
 // req.membership against "OWNER"/"ADMIN"/etc. It only asks the
@@ -11,14 +12,15 @@ const pool = require("../config/db");
 // Must run after requireCompanyMembership (needs req.membership.roleId).
 const requirePermission = (permissionKey) => {
   return async (req, res, next) => {
-    if (!req.membership) {
-      return res.status(500).json({
-        success: false,
-        message: "Permission kontrolü öncesi company membership doğrulanmalı.",
-      });
-    }
-
     try {
+      if (!req.membership) {
+        throw new AppError(
+          500,
+          "MEMBERSHIP_NOT_RESOLVED",
+          "Permission kontrolü öncesi company membership doğrulanmalı."
+        );
+      }
+
       const result = await pool.query(
         `SELECT 1
          FROM role_permissions rp
@@ -28,20 +30,12 @@ const requirePermission = (permissionKey) => {
       );
 
       if (result.rows.length === 0) {
-        return res.status(403).json({
-          success: false,
-          message: "Bu işlem için yetkiniz yok.",
-        });
+        throw new AppError(403, "PERMISSION_DENIED", "Bu işlem için yetkiniz yok.");
       }
 
       next();
     } catch (error) {
-      console.error("Permission middleware error:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: "Yetki kontrolü sırasında beklenmeyen bir hata oluştu.",
-      });
+      next(error);
     }
   };
 };
