@@ -11,6 +11,23 @@ const HOTEL_FIELDS = ["hotel_name", "address", "city", "country", "check_in", "c
 const ROOM_FIELDS = ["room_number", "room_type", "capacity", "status", "notes"];
 const ROOM_PARTICIPANT_FIELDS = ["check_in", "check_out", "status", "notes"];
 
+// check_hotel_room_capacity and check_hotel_room_participant_in_tour
+// (both in database/migrations/009_hotels.sql) are separate BEFORE
+// INSERT/UPDATE triggers on hotel_room_participants, but neither
+// RAISE EXCEPTION specifies a SQLSTATE, so Postgres defaults both to
+// P0001 -- dbErrors.js's generic P0001 handling (SCOPE_VIOLATION)
+// can't tell them apart by code alone. The two triggers' messages are
+// fixed, distinct formats, so the capacity one is matched by message
+// text here rather than changing what P0001 means for every other
+// trigger in the app (documents/finance/announcements/flights all
+// raise their own tenant-scope P0001s and must keep getting the
+// generic SCOPE_VIOLATION response).
+const ROOM_CAPACITY_ERROR_PATTERN = /^hotel_room_participants: room \d+ capacity \d+ exceeded/;
+
+function isRoomCapacityExceededError(error) {
+  return error.code === "P0001" && ROOM_CAPACITY_ERROR_PATTERN.test(error.message || "");
+}
+
 function validateHotelInput(body, { partial = false } = {}) {
   if (!partial || body.hotel_name !== undefined) requireField(body, "hotel_name");
   if (!partial || body.check_in !== undefined) requireField(body, "check_in");
@@ -146,6 +163,9 @@ async function addRoomParticipant(roomId, body) {
     );
     return result.rows[0];
   } catch (error) {
+    if (isRoomCapacityExceededError(error)) {
+      throw new AppError(422, "ROOM_CAPACITY_EXCEEDED", "Oda kapasitesi aşıldı.");
+    }
     mapDbError(error, "Bu katılımcı zaten bu odaya atanmış.");
   }
 }
@@ -168,7 +188,10 @@ async function updateRoomParticipant(roomId, participantId, body) {
     return result.rows[0];
   } catch (error) {
     if (error instanceof AppError) throw error;
-    mapDbError(error, "Oda kapasitesi aşıldı.");
+    if (isRoomCapacityExceededError(error)) {
+      throw new AppError(422, "ROOM_CAPACITY_EXCEEDED", "Oda kapasitesi aşıldı.");
+    }
+    mapDbError(error);
   }
 }
 
