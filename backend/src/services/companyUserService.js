@@ -2,6 +2,7 @@ const pool = require("../config/db");
 const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
 const { parsePagination, buildPaginationMeta } = require("../utils/pagination");
+const { getPermissionKeysForRole, assertWithinActorCeiling } = require("./permissionCeilingService");
 
 // role_id must either be a global role (company_id IS NULL) or a
 // custom role that belongs to THIS company -- never another
@@ -18,6 +19,18 @@ async function assertRoleUsableByCompany(roleId, companyId) {
   if (roleCompanyId !== null && roleCompanyId !== companyId) {
     throw new AppError(400, "INVALID_REFERENCE", "Bu rol başka bir şirkete ait.");
   }
+}
+
+// Core RBAC invariant, applied to role ASSIGNMENT (as opposed to role
+// PERMISSION editing, guarded separately in roleService): an actor
+// can never hand out -- to themselves or anyone else -- a role whose
+// permission set exceeds their own current one. Without this, an
+// actor could sidestep roleService's ceiling check entirely by
+// assigning an already-existing, more-privileged role (created by
+// someone else, e.g. OWNER) instead of building one themselves.
+async function assertActorCanGrantRole(actorRoleId, targetRoleId) {
+  const targetKeys = await getPermissionKeysForRole(targetRoleId);
+  await assertWithinActorCeiling(actorRoleId, targetKeys, "Atamak istediğiniz rol");
 }
 
 async function listCompanyUsers(companyId, query) {
@@ -72,7 +85,7 @@ async function getCompanyUserById(companyId, id) {
   return result.rows[0];
 }
 
-async function createCompanyUser(companyId, body) {
+async function createCompanyUser(companyId, actorRoleId, body) {
   const { user_id, role_id, status } = body;
 
   if (!user_id || !role_id) {
@@ -85,6 +98,7 @@ async function createCompanyUser(companyId, body) {
   }
 
   await assertRoleUsableByCompany(role_id, companyId);
+  await assertActorCanGrantRole(actorRoleId, role_id);
 
   try {
     const result = await pool.query(
@@ -99,7 +113,7 @@ async function createCompanyUser(companyId, body) {
   }
 }
 
-async function updateCompanyUser(companyId, id, body) {
+async function updateCompanyUser(companyId, actorRoleId, id, body) {
   const { role_id, status } = body;
   const fields = [];
   const values = [];
@@ -107,6 +121,7 @@ async function updateCompanyUser(companyId, id, body) {
 
   if (role_id !== undefined) {
     await assertRoleUsableByCompany(role_id, companyId);
+    await assertActorCanGrantRole(actorRoleId, role_id);
     fields.push(`role_id = $${i}`);
     values.push(role_id);
     i++;

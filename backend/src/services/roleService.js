@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
+const { assertWithinActorCeiling } = require("./permissionCeilingService");
 
 async function listRoles(companyId) {
   const result = await pool.query(
@@ -113,7 +114,7 @@ async function getRolePermissions(companyId, id) {
   return result.rows;
 }
 
-async function setRolePermissions(companyId, id, permissionIds) {
+async function setRolePermissions(companyId, id, permissionIds, actorRoleId) {
   const role = await getRoleById(companyId, id);
 
   if (role.company_id === null) {
@@ -123,6 +124,31 @@ async function setRolePermissions(companyId, id, permissionIds) {
   if (!Array.isArray(permissionIds)) {
     throw new AppError(400, "VALIDATION_ERROR", "permissionIds bir dizi olmalı.");
   }
+
+  // Resolve the requested ids to real permission keys (and reject any
+  // that don't exist) before checking them against the actor's own
+  // ceiling -- prevents an ID that doesn't exist from silently
+  // passing the ceiling check with zero keys to compare.
+  const uniqueIds = [...new Set(permissionIds)];
+  let requestedKeys = new Set();
+
+  if (uniqueIds.length > 0) {
+    const requested = await pool.query(
+      `SELECT id, key FROM permissions WHERE id = ANY($1::int[])`,
+      [uniqueIds]
+    );
+
+    if (requested.rows.length !== uniqueIds.length) {
+      throw new AppError(400, "INVALID_REFERENCE", "permissionIds geçersiz bir yetki ID'si içeriyor.");
+    }
+
+    requestedKeys = new Set(requested.rows.map((row) => row.key));
+  }
+
+  // Core RBAC invariant: you cannot grant a role a permission your
+  // own current role does not itself hold. This is what closes the
+  // ADMIN -> custom role -> company.delete escalation path.
+  await assertWithinActorCeiling(actorRoleId, requestedKeys, "Atanmak istenen yetki listesi");
 
   const client = await pool.connect();
   try {

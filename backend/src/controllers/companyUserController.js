@@ -13,12 +13,12 @@ const getById = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  const item = await companyUserService.createCompanyUser(req.membership.companyId, req.body);
+  const item = await companyUserService.createCompanyUser(req.membership.companyId, req.membership.roleId, req.body);
   sendSuccess(res, item, 201);
 });
 
 const update = asyncHandler(async (req, res) => {
-  const item = await companyUserService.updateCompanyUser(req.membership.companyId, req.params.id, req.body);
+  const item = await companyUserService.updateCompanyUser(req.membership.companyId, req.membership.roleId, req.params.id, req.body);
   sendSuccess(res, item);
 });
 

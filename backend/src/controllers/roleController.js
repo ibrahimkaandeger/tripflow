@@ -28,7 +28,7 @@ const getPermissions = asyncHandler(async (req, res) => {
 });
 
 const setPermissions = asyncHandler(async (req, res) => {
-  const permissions = await roleService.setRolePermissions(req.membership.companyId, req.params.id, req.body.permissionIds);
+  const permissions = await roleService.setRolePermissions(req.membership.companyId, req.params.id, req.body.permissionIds, req.membership.roleId);
   sendSuccess(res, permissions);
 });
 
