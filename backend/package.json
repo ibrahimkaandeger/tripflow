@@ -6,7 +6,10 @@
   "dev": "nodemon src/server.js",
   "start": "node src/server.js",
   "migrate": "node database/migrate.js",
-  "test": "echo \"Error: no test specified\" && exit 1"
+  "test:db:create": "node --env-file=.env.test tests/setup/createTestDatabase.js",
+  "pretest": "node --env-file=.env.test database/migrate.js",
+  "test": "node --env-file=.env.test --test",
+  "test:watch": "node --env-file=.env.test --test --watch"
 },
   "keywords": [],
   "author": "",

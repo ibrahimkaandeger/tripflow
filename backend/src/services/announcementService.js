@@ -258,7 +258,7 @@ async function markAnnouncementRead(userId, announcementId) {
        ON CONFLICT (
          announcement_id,
          participant_id
-       ) DO NOTHING`,
+       ) WHERE participant_id IS NOT NULL DO NOTHING`,
       [
         announcementId,
         participant.rows[0].participant_id,
@@ -291,7 +291,7 @@ async function markAnnouncementRead(userId, announcementId) {
        ON CONFLICT (
          announcement_id,
          user_id
-       ) DO NOTHING`,
+       ) WHERE user_id IS NOT NULL DO NOTHING`,
       [announcementId, userId]
     );
 
