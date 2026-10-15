@@ -3,14 +3,15 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-  "dev": "nodemon src/server.js",
-  "start": "node src/server.js",
-  "migrate": "node database/migrate.js",
-  "test:db:create": "node --env-file=.env.test tests/setup/createTestDatabase.js",
-  "pretest": "node --env-file=.env.test database/migrate.js",
-  "test": "node --env-file=.env.test --test",
-  "test:watch": "node --env-file=.env.test --test --watch"
-},
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "migrate": "node database/migrate.js",
+    "test:db:create": "node --env-file=.env.test tests/setup/createTestDatabase.js",
+    "pretest": "node --env-file=.env.test database/migrate.js",
+    "test": "node --env-file=.env.test --test",
+    "test:watch": "node --env-file=.env.test --test --watch",
+    "seed:demo": "node database/seeds/demo.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

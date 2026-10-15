@@ -2,7 +2,9 @@ const pool = require("../config/db");
 const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
 const { parsePagination, buildPaginationMeta } = require("../utils/pagination");
-const { requireField, requireEnum, fail } = require("../utils/validate");
+const {
+  requireField, requireEnum, requireEmail, requireDateOnly, requireMaxLength, requireIntId, fail,
+} = require("../utils/validate");
 
 const STATUSES = ["ACTIVE", "INACTIVE", "CANCELLED"];
 const UPDATABLE_FIELDS = [
@@ -10,10 +12,23 @@ const UPDATABLE_FIELDS = [
   "passport_country", "city", "birth_date", "notes", "status", "user_id",
 ];
 
+// VARCHAR limits from 006_participants.sql.
+const MAX_LENGTHS = {
+  first_name: 100, last_name: 100, email: 255, phone: 50,
+  passport_number: 50, passport_country: 100, city: 100,
+};
+
 function validateParticipantInput(body, { partial = false } = {}) {
   if (!partial || body.first_name !== undefined) requireField(body, "first_name");
   if (!partial || body.last_name !== undefined) requireField(body, "last_name");
   requireEnum(body.status, STATUSES, "status");
+
+  for (const [field, max] of Object.entries(MAX_LENGTHS)) {
+    requireMaxLength(body[field], max, field);
+  }
+  requireEmail(body.email, "email");
+  if (body.birth_date) requireDateOnly(body.birth_date, "birth_date");
+  if (body.user_id !== undefined && body.user_id !== null) requireIntId(body.user_id, "user_id");
 
   if (!partial && !body.email && !body.phone) {
     fail("email veya phone alanlarından en az biri zorunludur.");
@@ -34,12 +49,17 @@ async function listParticipants(companyId, query) {
   const params = [companyId];
 
   if (query.status) {
+    requireEnum(query.status, STATUSES, "status");
     params.push(query.status);
     conditions.push(`status = $${params.length}`);
   }
   if (query.search) {
-    params.push(`%${query.search}%`);
-    conditions.push(`(first_name ILIKE $${params.length} OR last_name ILIKE $${params.length} OR email ILIKE $${params.length})`);
+    if (typeof query.search !== "string") fail("search tek bir metin olmalı.");
+    params.push(`%${query.search.trim()}%`);
+    const p = `$${params.length}`;
+    conditions.push(
+      `(first_name ILIKE ${p} OR last_name ILIKE ${p} OR (first_name || ' ' || last_name) ILIKE ${p} OR email ILIKE ${p} OR phone ILIKE ${p})`
+    );
   }
 
   const where = conditions.join(" AND ");
@@ -47,7 +67,7 @@ async function listParticipants(companyId, query) {
 
   const result = await pool.query(
     `SELECT id, company_id, user_id, first_name, last_name, email, phone, passport_country, city, birth_date, status, created_at, updated_at
-     FROM participants WHERE ${where} ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+     FROM participants WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset]
   );
 
@@ -60,6 +80,22 @@ async function getParticipantById(companyId, id) {
     throw new AppError(404, "PARTICIPANT_NOT_FOUND", "Katılımcı bulunamadı.");
   }
   return result.rows[0];
+}
+
+// Tours this participant is registered on, with the registration's own
+// status/payment fields. Scoped by company on both sides.
+async function listToursForParticipant(companyId, participantId) {
+  const result = await pool.query(
+    `SELECT t.id AS tour_id, t.title, t.destination, t.start_date, t.end_date, t.status AS tour_status,
+            tp.status, tp.room_number, tp.sale_price, tp.sale_currency, tp.payment_status, tp.created_at
+     FROM tour_participants tp
+     JOIN tours t ON t.id = tp.tour_id
+     JOIN participants p ON p.id = tp.participant_id
+     WHERE tp.participant_id = $1 AND p.company_id = $2 AND t.company_id = $2
+     ORDER BY t.start_date DESC, t.id DESC`,
+    [participantId, companyId]
+  );
+  return result.rows;
 }
 
 async function createParticipant(companyId, body) {
@@ -93,7 +129,8 @@ async function updateParticipant(companyId, id, body) {
   for (const field of UPDATABLE_FIELDS) {
     if (body[field] !== undefined) {
       fields.push(`${field} = $${i}`);
-      values.push(body[field]);
+      // Clearing an optional field from a form sends "" -- store NULL.
+      values.push(body[field] === "" ? null : body[field]);
       i++;
     }
   }
@@ -116,4 +153,32 @@ async function updateParticipant(companyId, id, body) {
   }
 }
 
-module.exports = { listParticipants, getParticipantById, createParticipant, updateParticipant };
+// A participant with recorded money movements is not deleted: the
+// finance FK would silently detach those transactions (SET NULL) and
+// lose who paid. Such customers should be set INACTIVE instead.
+async function deleteParticipant(companyId, id) {
+  await getParticipantById(companyId, id);
+
+  const finance = await pool.query(
+    "SELECT 1 FROM finance_transactions WHERE participant_id = $1 LIMIT 1",
+    [id]
+  );
+  if (finance.rows.length > 0) {
+    throw new AppError(
+      409,
+      "PARTICIPANT_HAS_FINANCE",
+      "Bu katılımcının finansal kayıtları olduğu için silinemez. Bunun yerine durumunu pasif yapın."
+    );
+  }
+
+  await pool.query("DELETE FROM participants WHERE id = $1 AND company_id = $2", [id, companyId]);
+}
+
+module.exports = {
+  listParticipants,
+  getParticipantById,
+  listToursForParticipant,
+  createParticipant,
+  updateParticipant,
+  deleteParticipant,
+};

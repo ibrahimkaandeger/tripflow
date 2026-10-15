@@ -1,16 +1,15 @@
 const pool = require("../config/db");
 const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
-const { requireField, requireValidDate, fail } = require("../utils/validate");
+const { requireField, requireDateOnly, requireIntId, requireMaxLength } = require("../utils/validate");
 
 function validateDayInput(body, { partial = false } = {}) {
   if (!partial || body.day_number !== undefined) requireField(body, "day_number");
   if (!partial || body.date !== undefined) requireField(body, "date");
 
-  if (body.day_number !== undefined && (!Number.isInteger(Number(body.day_number)) || Number(body.day_number) <= 0)) {
-    fail("day_number pozitif bir tam sayı olmalı.");
-  }
-  requireValidDate(body.date, "date");
+  if (body.day_number !== undefined) requireIntId(body.day_number, "day_number");
+  requireDateOnly(body.date, "date");
+  requireMaxLength(body.title, 150, "title");
 }
 
 async function listTourDays(tourId) {

@@ -18,7 +18,7 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const update = asyncHandler(async (req, res) => {
-  const item = await companyUserService.updateCompanyUser(req.membership.companyId, req.membership.roleId, req.params.id, req.body);
+  const item = await companyUserService.updateCompanyUser(req.membership.companyId, req.membership.roleId, req.user.id, req.params.id, req.body);
   sendSuccess(res, item);
 });
 

@@ -1,0 +1,158 @@
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  background: #f5f7fa;
+  color: #1f2933;
+}
+
+.app-sidebar {
+  flex: 0 0 220px;
+  background: #1f2a3c;
+  color: #cbd2d9;
+  padding: 20px 12px;
+}
+
+.app-brand {
+  padding: 4px 12px 4px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.app-company {
+  padding: 0 12px 18px;
+  font-size: 0.82rem;
+  color: #9aa5b1;
+  overflow-wrap: anywhere;
+}
+
+.app-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-nav-link {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 6px;
+  color: #cbd2d9;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.app-nav-link:hover {
+  background: #2c3a52;
+  color: #fff;
+}
+
+.app-nav-link-active,
+.app-nav-link-active:hover {
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  background: #fff;
+  border-bottom: 1px solid #e4e7eb;
+}
+
+.app-header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.app-header-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.app-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.app-user-role {
+  font-size: 0.75rem;
+  color: var(--color-text-subtle);
+}
+
+.app-user-name {
+  color: #52606d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-logout {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 6px 14px;
+  border: 1px solid #cbd2d9;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f2933;
+  font: inherit;
+  cursor: pointer;
+}
+
+.app-logout:hover {
+  background: #f0f2f4;
+}
+
+.app-content {
+  flex: 1;
+}
+
+/* Narrow screens: the sidebar turns into a horizontally scrollable nav bar
+   above the content instead of a drawer. */
+@media (max-width: 768px) {
+  .app-layout {
+    flex-direction: column;
+  }
+
+  .app-sidebar {
+    flex: none;
+    padding: 8px 12px;
+  }
+
+  .app-brand,
+  .app-company {
+    display: none;
+  }
+
+  .app-nav {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .app-nav-link {
+    white-space: nowrap;
+    padding: 8px 12px;
+  }
+
+  .app-header {
+    padding: 10px 16px;
+  }
+}

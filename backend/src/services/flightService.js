@@ -1,7 +1,9 @@
 const pool = require("../config/db");
 const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
-const { requireField, requireEnum, requireValidDate, fail } = require("../utils/validate");
+const { requireField, requireEnum, requireDateTime, requireMaxLength, requireIntId, fail } = require("../utils/validate");
+const { buildPaginationMeta } = require("../utils/pagination");
+const { parseListQuery } = require("../utils/listQuery");
 
 const STATUSES = ["SCHEDULED", "DELAYED", "CANCELLED", "COMPLETED"];
 const PARTICIPANT_STATUSES = ["CONFIRMED", "CANCELLED"];
@@ -17,8 +19,15 @@ function validateFlightInput(body, { partial = false } = {}) {
     if (!partial || body[field] !== undefined) requireField(body, field);
   }
 
-  requireValidDate(body.departure_datetime, "departure_datetime");
-  requireValidDate(body.arrival_datetime, "arrival_datetime");
+  requireDateTime(body.departure_datetime, "departure_datetime");
+  requireDateTime(body.arrival_datetime, "arrival_datetime");
+
+  // VARCHAR limits from 008_flights.sql.
+  const maxLengths = {
+    airline: 150, flight_number: 20, departure_airport: 100, arrival_airport: 100,
+    departure_terminal: 20, arrival_terminal: 20, booking_reference: 50,
+  };
+  for (const [field, max] of Object.entries(maxLengths)) requireMaxLength(body[field], max, field);
 
   if (body.departure_datetime && body.arrival_datetime && new Date(body.arrival_datetime) <= new Date(body.departure_datetime)) {
     fail("arrival_datetime, departure_datetime değerinden sonra olmalı.");
@@ -30,6 +39,36 @@ function validateFlightInput(body, { partial = false } = {}) {
 async function listFlightsForTour(tourId) {
   const result = await pool.query("SELECT * FROM flights WHERE tour_id = $1 ORDER BY departure_datetime", [tourId]);
   return result.rows;
+}
+
+// Every flight of the company across all tours, newest departure first,
+// with the tour title for display. Optional filters: tour, status,
+// search (airline / flight number / airports).
+async function listFlights(companyId, query) {
+  const { page, limit, offset, tourId, status, search } = parseListQuery(query, { statuses: STATUSES });
+  const conditions = ["t.company_id = $1"];
+  const params = [companyId];
+
+  if (tourId) { params.push(tourId); conditions.push(`f.tour_id = $${params.length}`); }
+  if (status) { params.push(status); conditions.push(`f.status = $${params.length}`); }
+  if (search) {
+    params.push(search);
+    const p = `$${params.length}`;
+    conditions.push(`(f.airline ILIKE ${p} OR f.flight_number ILIKE ${p} OR f.departure_airport ILIKE ${p} OR f.arrival_airport ILIKE ${p})`);
+  }
+
+  const where = conditions.join(" AND ");
+  const count = await pool.query(`SELECT COUNT(*) FROM flights f JOIN tours t ON t.id = f.tour_id WHERE ${where}`, params);
+  const result = await pool.query(
+    `SELECT f.*, t.title AS tour_title
+     FROM flights f JOIN tours t ON t.id = f.tour_id
+     WHERE ${where}
+     ORDER BY f.departure_datetime DESC, f.id DESC
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset]
+  );
+
+  return { data: result.rows, pagination: buildPaginationMeta(page, limit, Number(count.rows[0].count)) };
 }
 
 async function getFlightById(id) {
@@ -99,6 +138,7 @@ async function deleteFlight(id) {
 async function addFlightParticipant(flightId, body) {
   const { participant_id, seat_number, ticket_number, status } = body;
   if (!participant_id) fail("participant_id zorunludur.");
+  requireIntId(participant_id, "participant_id");
   requireEnum(status, PARTICIPANT_STATUSES, "status");
 
   try {
@@ -161,6 +201,6 @@ async function removeFlightParticipant(flightId, participantId) {
 }
 
 module.exports = {
-  listFlightsForTour, getFlightById, createFlight, updateFlight, deleteFlight,
+  listFlightsForTour, listFlights, getFlightById, createFlight, updateFlight, deleteFlight,
   addFlightParticipant, updateFlightParticipant, removeFlightParticipant,
 };

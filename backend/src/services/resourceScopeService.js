@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const AppError = require("../utils/AppError");
+const { requireIntId } = require("../utils/validate");
 
 // Resolves the owning company_id for a resource, following the exact
 // chains described for this phase (tour.company_id direct;
@@ -158,11 +159,10 @@ async function getRoleCompanyId(roleId) {
 function requireResourceOwnership(resolver, paramName = "id") {
   return async (req, res, next) => {
     try {
-      const resourceId = Number(req.params[paramName]);
-
-      if (!resourceId) {
-        throw new AppError(404, "RESOURCE_NOT_FOUND", "Kaynak bulunamadı.");
-      }
+      // Malformed ids ("abc", "1.5", beyond INTEGER range) are a 400
+      // before any query runs; a well-formed id that doesn't exist (or
+      // belongs to another company) is still the indistinguishable 404.
+      const resourceId = requireIntId(req.params[paramName], paramName);
 
       const ownerCompanyId = await resolver(resourceId);
 

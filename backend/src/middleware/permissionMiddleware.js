@@ -9,27 +9,36 @@ const AppError = require("../utils/AppError");
 // admin-managed permission changes take effect automatically without
 // any change here.
 //
+// The single permission lookup. Exported so a handler can branch on a
+// permission (e.g. hide fields) without a second copy of this query.
+async function roleHasPermission(roleId, permissionKey) {
+  const result = await pool.query(
+    `SELECT 1
+     FROM role_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
+     WHERE rp.role_id = $1 AND p.key = $2`,
+    [roleId, permissionKey]
+  );
+  return result.rows.length > 0;
+}
+
+function assertMembershipResolved(req) {
+  if (!req.membership) {
+    throw new AppError(
+      500,
+      "MEMBERSHIP_NOT_RESOLVED",
+      "Permission kontrolü öncesi company membership doğrulanmalı."
+    );
+  }
+}
+
 // Must run after requireCompanyMembership (needs req.membership.roleId).
 const requirePermission = (permissionKey) => {
   return async (req, res, next) => {
     try {
-      if (!req.membership) {
-        throw new AppError(
-          500,
-          "MEMBERSHIP_NOT_RESOLVED",
-          "Permission kontrolü öncesi company membership doğrulanmalı."
-        );
-      }
+      assertMembershipResolved(req);
 
-      const result = await pool.query(
-        `SELECT 1
-         FROM role_permissions rp
-         JOIN permissions p ON p.id = rp.permission_id
-         WHERE rp.role_id = $1 AND p.key = $2`,
-        [req.membership.roleId, permissionKey]
-      );
-
-      if (result.rows.length === 0) {
+      if (!(await roleHasPermission(req.membership.roleId, permissionKey))) {
         throw new AppError(403, "PERMISSION_DENIED", "Bu işlem için yetkiniz yok.");
       }
 
@@ -40,4 +49,33 @@ const requirePermission = (permissionKey) => {
   };
 };
 
-module.exports = { requirePermission };
+// Field-level gate on top of the route's own permission: if the request
+// body contains ANY of `fields`, the caller must also hold
+// `permissionKey`. Bodies without those fields pass straight through,
+// so the route's base permission alone keeps governing them. Used for
+// financial columns on tour_participants, which participants.update
+// must not be able to change without finance.update.
+const requirePermissionForFields = (fields, permissionKey) => {
+  return async (req, res, next) => {
+    try {
+      assertMembershipResolved(req);
+
+      const body = req.body || {};
+      const touched = fields.filter((field) => body[field] !== undefined);
+
+      if (touched.length > 0 && !(await roleHasPermission(req.membership.roleId, permissionKey))) {
+        throw new AppError(
+          403,
+          "PERMISSION_DENIED",
+          `${touched.join(", ")} alanlarını değiştirmek için ${permissionKey} yetkisi gerekli.`
+        );
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
+module.exports = { requirePermission, requirePermissionForFields, roleHasPermission };

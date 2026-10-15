@@ -6,10 +6,14 @@ const { requireResourceOwnership, getParticipantCompanyId } = require("../servic
 const participantController = require("../controllers/participantController");
 
 const router = express.Router();
+const auth = [authMiddleware, requireCompanyMembership];
+const owned = requireResourceOwnership(getParticipantCompanyId);
 
-router.get("/participants", authMiddleware, requireCompanyMembership, requirePermission("participants.read"), participantController.list);
-router.post("/participants", authMiddleware, requireCompanyMembership, requirePermission("participants.create"), participantController.create);
-router.get("/participants/:id", authMiddleware, requireCompanyMembership, requirePermission("participants.read"), requireResourceOwnership(getParticipantCompanyId), participantController.getById);
-router.patch("/participants/:id", authMiddleware, requireCompanyMembership, requirePermission("participants.update"), requireResourceOwnership(getParticipantCompanyId), participantController.update);
+router.get("/participants", ...auth, requirePermission("participants.read"), participantController.list);
+router.post("/participants", ...auth, requirePermission("participants.create"), participantController.create);
+router.get("/participants/:id", ...auth, requirePermission("participants.read"), owned, participantController.getById);
+router.get("/participants/:id/tours", ...auth, requirePermission("participants.read"), owned, participantController.listTours);
+router.patch("/participants/:id", ...auth, requirePermission("participants.update"), owned, participantController.update);
+router.delete("/participants/:id", ...auth, requirePermission("participants.delete"), owned, participantController.remove);
 
 module.exports = router;

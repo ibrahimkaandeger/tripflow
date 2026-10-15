@@ -12,4 +12,13 @@ const updateMe = asyncHandler(async (req, res) => {
   sendSuccess(res, company);
 });
 
-module.exports = { getMe, updateMe };
+const create = asyncHandler(async (req, res) => {
+  const company = await companyService.createCompanyForUser(req.user.id, req.body);
+  sendSuccess(res, company, 201);
+});
+
+const getMyPermissions = asyncHandler(async (req, res) => {
+  sendSuccess(res, await companyService.getMembershipPermissions(req.membership));
+});
+
+module.exports = { getMe, updateMe, create, getMyPermissions };

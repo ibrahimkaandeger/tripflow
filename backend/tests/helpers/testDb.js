@@ -20,6 +20,13 @@ if (process.env.DB_NAME !== EXPECTED_TEST_DB_NAME) {
   );
 }
 
+// src/config/db.js prefers DATABASE_URL over DB_*, so a DATABASE_URL in
+// the test environment could silently point the app somewhere other
+// than the DB_NAME checked above. Refuse outright.
+if (process.env.DATABASE_URL) {
+  throw new Error("Refusing to run tests: DATABASE_URL must not be set in the test environment.");
+}
+
 const pool = new Pool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,

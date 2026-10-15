@@ -1,6 +1,7 @@
 const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess, sendList } = require("../utils/response");
 const financeService = require("../services/financeService");
+const financeSummaryService = require("../services/financeSummaryService");
 
 const listForTour = asyncHandler(async (req, res) => {
   const { data, pagination } = await financeService.listTransactionsForTour(req.membership.companyId, req.params.tourId, req.query);
@@ -22,4 +23,7 @@ const create = asyncHandler(async (req, res) => {
 const update = asyncHandler(async (req, res) => sendSuccess(res, await financeService.updateTransaction(req.params.id, req.body)));
 const cancel = asyncHandler(async (req, res) => sendSuccess(res, await financeService.cancelTransaction(req.params.id)));
 
-module.exports = { listForTour, listAll, getById, create, update, cancel };
+const tourSummary = asyncHandler(async (req, res) => sendSuccess(res, await financeSummaryService.getTourFinanceSummary(req.params.tourId)));
+const companySummary = asyncHandler(async (req, res) => sendSuccess(res, await financeSummaryService.getCompanyFinanceSummary(req.membership.companyId)));
+
+module.exports = { listForTour, listAll, getById, create, update, cancel, tourSummary, companySummary };

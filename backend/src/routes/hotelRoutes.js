@@ -6,10 +6,12 @@ const {
   requireResourceOwnership, getTourCompanyId, getHotelCompanyId, getHotelRoomCompanyId,
 } = require("../services/resourceScopeService");
 const controller = require("../controllers/hotelController");
+const { validateIdParams } = require("../middleware/validateIdParams");
 
 const router = express.Router();
 const auth = [authMiddleware, requireCompanyMembership];
 
+router.get("/hotels", ...auth, requirePermission("hotels.read"), controller.listAllHotels);
 router.get("/tours/:tourId/hotels", ...auth, requireResourceOwnership(getTourCompanyId, "tourId"), requirePermission("hotels.read"), controller.listHotels);
 router.post("/tours/:tourId/hotels", ...auth, requireResourceOwnership(getTourCompanyId, "tourId"), requirePermission("hotels.create"), controller.createHotel);
 router.get("/hotels/:id", ...auth, requireResourceOwnership(getHotelCompanyId, "id"), requirePermission("hotels.read"), controller.getHotel);
@@ -22,7 +24,7 @@ router.patch("/hotel-rooms/:id", ...auth, requireResourceOwnership(getHotelRoomC
 router.delete("/hotel-rooms/:id", ...auth, requireResourceOwnership(getHotelRoomCompanyId, "id"), requirePermission("hotels.update"), controller.removeRoom);
 
 router.post("/hotel-rooms/:roomId/participants", ...auth, requireResourceOwnership(getHotelRoomCompanyId, "roomId"), requirePermission("hotels.update"), controller.addRoomParticipant);
-router.patch("/hotel-rooms/:roomId/participants/:participantId", ...auth, requireResourceOwnership(getHotelRoomCompanyId, "roomId"), requirePermission("hotels.update"), controller.updateRoomParticipant);
-router.delete("/hotel-rooms/:roomId/participants/:participantId", ...auth, requireResourceOwnership(getHotelRoomCompanyId, "roomId"), requirePermission("hotels.update"), controller.removeRoomParticipant);
+router.patch("/hotel-rooms/:roomId/participants/:participantId", ...auth, validateIdParams("participantId"), requireResourceOwnership(getHotelRoomCompanyId, "roomId"), requirePermission("hotels.update"), controller.updateRoomParticipant);
+router.delete("/hotel-rooms/:roomId/participants/:participantId", ...auth, validateIdParams("participantId"), requireResourceOwnership(getHotelRoomCompanyId, "roomId"), requirePermission("hotels.update"), controller.removeRoomParticipant);
 
 module.exports = router;

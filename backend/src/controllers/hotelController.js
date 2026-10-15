@@ -1,8 +1,12 @@
 const asyncHandler = require("../utils/asyncHandler");
-const { sendSuccess } = require("../utils/response");
+const { sendSuccess, sendList } = require("../utils/response");
 const hotelService = require("../services/hotelService");
 
 const listHotels = asyncHandler(async (req, res) => sendSuccess(res, await hotelService.listHotelsForTour(req.params.tourId)));
+const listAllHotels = asyncHandler(async (req, res) => {
+  const { data, pagination } = await hotelService.listHotels(req.membership.companyId, req.query);
+  sendList(res, data, pagination);
+});
 const createHotel = asyncHandler(async (req, res) => sendSuccess(res, await hotelService.createHotel(req.params.tourId, req.body), 201));
 const getHotel = asyncHandler(async (req, res) => sendSuccess(res, await hotelService.getHotelById(req.params.id)));
 const updateHotel = asyncHandler(async (req, res) => sendSuccess(res, await hotelService.updateHotel(req.params.id, req.body)));
@@ -18,7 +22,7 @@ const updateRoomParticipant = asyncHandler(async (req, res) => sendSuccess(res, 
 const removeRoomParticipant = asyncHandler(async (req, res) => { await hotelService.removeRoomParticipant(req.params.roomId, req.params.participantId); res.status(204).send(); });
 
 module.exports = {
-  listHotels, createHotel, getHotel, updateHotel, removeHotel,
+  listHotels, listAllHotels, createHotel, getHotel, updateHotel, removeHotel,
   listRooms, createRoom, updateRoom, removeRoom,
   addRoomParticipant, updateRoomParticipant, removeRoomParticipant,
 };

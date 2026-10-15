@@ -4,6 +4,7 @@ const { requireCompanyMembership } = require("../middleware/companyMiddleware");
 const { requirePermission } = require("../middleware/permissionMiddleware");
 const { requireResourceOwnership, getTourCompanyId } = require("../services/resourceScopeService");
 const controller = require("../controllers/tourDayController");
+const { validateIdParams } = require("../middleware/validateIdParams");
 
 const router = express.Router();
 const scoped = [authMiddleware, requireCompanyMembership, requireResourceOwnership(getTourCompanyId, "tourId")];
@@ -16,8 +17,8 @@ const scoped = [authMiddleware, requireCompanyMembership, requireResourceOwnersh
 // the tour's own day structure.
 router.get("/tours/:tourId/days", ...scoped, requirePermission("tours.read"), controller.list);
 router.post("/tours/:tourId/days", ...scoped, requirePermission("tours.update"), controller.create);
-router.get("/tours/:tourId/days/:dayId", ...scoped, requirePermission("tours.read"), controller.getById);
-router.patch("/tours/:tourId/days/:dayId", ...scoped, requirePermission("tours.update"), controller.update);
-router.delete("/tours/:tourId/days/:dayId", ...scoped, requirePermission("tours.update"), controller.remove);
+router.get("/tours/:tourId/days/:dayId", ...scoped, validateIdParams("dayId"), requirePermission("tours.read"), controller.getById);
+router.patch("/tours/:tourId/days/:dayId", ...scoped, validateIdParams("dayId"), requirePermission("tours.update"), controller.update);
+router.delete("/tours/:tourId/days/:dayId", ...scoped, validateIdParams("dayId"), requirePermission("tours.update"), controller.remove);
 
 module.exports = router;

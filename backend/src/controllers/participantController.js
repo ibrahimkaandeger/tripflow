@@ -1,6 +1,7 @@
 const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess, sendList } = require("../utils/response");
 const participantService = require("../services/participantService");
+const { withoutFinanceUnlessAllowed } = require("../utils/financeVisibility");
 
 const list = asyncHandler(async (req, res) => {
   const { data, pagination } = await participantService.listParticipants(req.membership.companyId, req.query);
@@ -10,6 +11,11 @@ const list = asyncHandler(async (req, res) => {
 const getById = asyncHandler(async (req, res) => {
   const participant = await participantService.getParticipantById(req.membership.companyId, req.params.id);
   sendSuccess(res, participant);
+});
+
+const listTours = asyncHandler(async (req, res) => {
+  const tours = await participantService.listToursForParticipant(req.membership.companyId, req.params.id);
+  sendSuccess(res, await withoutFinanceUnlessAllowed(req, tours));
 });
 
 const create = asyncHandler(async (req, res) => {
@@ -22,4 +28,9 @@ const update = asyncHandler(async (req, res) => {
   sendSuccess(res, participant);
 });
 
-module.exports = { list, getById, create, update };
+const remove = asyncHandler(async (req, res) => {
+  await participantService.deleteParticipant(req.membership.companyId, req.params.id);
+  res.status(204).send();
+});
+
+module.exports = { list, getById, listTours, create, update, remove };

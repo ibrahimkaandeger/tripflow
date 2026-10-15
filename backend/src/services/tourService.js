@@ -2,7 +2,7 @@ const pool = require("../config/db");
 const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
 const { parsePagination, buildPaginationMeta } = require("../utils/pagination");
-const { requireField, requireEnum, requirePositiveNumber, requireValidDate, fail } = require("../utils/validate");
+const { requireField, requireEnum, requirePositiveNumber, requireDateOnly, requireIntId, requireMaxLength, fail } = require("../utils/validate");
 
 const STATUSES = ["DRAFT", "PLANNED", "CONFIRMED", "ONGOING", "COMPLETED", "CANCELLED"];
 
@@ -12,8 +12,13 @@ function validateTourInput(body, { partial = false } = {}) {
   if (!partial || body.start_date !== undefined) requireField(body, "start_date");
   if (!partial || body.end_date !== undefined) requireField(body, "end_date");
 
-  requireValidDate(body.start_date, "start_date");
-  requireValidDate(body.end_date, "end_date");
+  requireDateOnly(body.start_date, "start_date");
+  requireDateOnly(body.end_date, "end_date");
+  requireMaxLength(body.title, 150, "title");
+  requireMaxLength(body.destination, 150, "destination");
+  if (body.capacity !== undefined && body.capacity !== null && body.capacity !== "") {
+    requireIntId(body.capacity, "capacity");
+  }
 
   if (body.start_date && body.end_date && new Date(body.start_date) > new Date(body.end_date)) {
     fail("start_date, end_date değerinden sonra olamaz.");
@@ -24,9 +29,27 @@ function validateTourInput(body, { partial = false } = {}) {
 }
 
 async function listTours(companyId, query) {
+  for (const key of ["page", "limit"]) {
+    if (query[key] !== undefined && query[key] !== "") requireIntId(query[key], key);
+  }
+  requireEnum(query.status || undefined, STATUSES, "status");
+  requireDateOnly(query.startFrom || undefined, "startFrom");
+  requireDateOnly(query.startTo || undefined, "startTo");
+  if (query.search !== undefined && (typeof query.search !== "string" || query.search.length > 100)) {
+    fail("search en fazla 100 karakterlik tek bir metin olmalı.");
+  }
+  if (query.destination !== undefined && typeof query.destination !== "string") {
+    fail("destination tek bir metin olmalı.");
+  }
+
   const { page, limit, offset } = parsePagination(query);
   const conditions = ["company_id = $1"];
   const params = [companyId];
+
+  if (query.search) {
+    params.push(`%${query.search.trim()}%`);
+    conditions.push(`(title ILIKE $${params.length} OR destination ILIKE $${params.length})`);
+  }
 
   if (query.status) {
     params.push(query.status);
@@ -50,7 +73,7 @@ async function listTours(companyId, query) {
   const countResult = await pool.query(`SELECT COUNT(*) FROM tours WHERE ${where}`, params);
 
   const result = await pool.query(
-    `SELECT * FROM tours WHERE ${where} ORDER BY start_date DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    `SELECT * FROM tours WHERE ${where} ORDER BY start_date DESC, id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset]
   );
 

@@ -11,6 +11,17 @@ const router = express.Router();
 // still POST / and GET /:tripDayId). These paths only add PATCH/DELETE
 // on /api/activities/:id and the new /api/tour-days/:dayId/activities
 // pair, so there is no method/path overlap with the legacy routes.
+// Company-wide list. The legacy router mounted at /api/activities only
+// defines POST / and GET /:tripDayId, so a GET on the bare
+// /api/activities path matches nothing there and falls through to this
+// route (covered by tests).
+router.get(
+  "/activities",
+  authMiddleware, requireCompanyMembership,
+  requirePermission("activities.read"),
+  controller.listAll
+);
+
 router.get(
   "/tour-days/:dayId/activities",
   authMiddleware, requireCompanyMembership,

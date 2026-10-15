@@ -7,12 +7,13 @@ const {
 } = require("../controllers/userController");
 
 const authMiddleware = require("../middleware/authMiddleware");
+const { loginRateLimit, registerRateLimit } = require("../middleware/rateLimit");
 
 const router = express.Router();
 
-router.post("/", createUser);
+router.post("/", registerRateLimit, createUser);
 
-router.post("/login", loginUser);
+router.post("/login", loginRateLimit, loginUser);
 
 router.get("/me", authMiddleware, getMe);
 

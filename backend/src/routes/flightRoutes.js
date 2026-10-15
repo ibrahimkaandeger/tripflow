@@ -4,10 +4,12 @@ const { requireCompanyMembership } = require("../middleware/companyMiddleware");
 const { requirePermission } = require("../middleware/permissionMiddleware");
 const { requireResourceOwnership, getTourCompanyId, getFlightCompanyId } = require("../services/resourceScopeService");
 const controller = require("../controllers/flightController");
+const { validateIdParams } = require("../middleware/validateIdParams");
 
 const router = express.Router();
 const auth = [authMiddleware, requireCompanyMembership];
 
+router.get("/flights", ...auth, requirePermission("flights.read"), controller.listAll);
 router.get("/tours/:tourId/flights", ...auth, requireResourceOwnership(getTourCompanyId, "tourId"), requirePermission("flights.read"), controller.list);
 router.post("/tours/:tourId/flights", ...auth, requireResourceOwnership(getTourCompanyId, "tourId"), requirePermission("flights.create"), controller.create);
 router.get("/flights/:id", ...auth, requireResourceOwnership(getFlightCompanyId, "id"), requirePermission("flights.read"), controller.getById);
@@ -15,7 +17,7 @@ router.patch("/flights/:id", ...auth, requireResourceOwnership(getFlightCompanyI
 router.delete("/flights/:id", ...auth, requireResourceOwnership(getFlightCompanyId, "id"), requirePermission("flights.delete"), controller.remove);
 
 router.post("/flights/:flightId/participants", ...auth, requireResourceOwnership(getFlightCompanyId, "flightId"), requirePermission("flights.update"), controller.addParticipant);
-router.patch("/flights/:flightId/participants/:participantId", ...auth, requireResourceOwnership(getFlightCompanyId, "flightId"), requirePermission("flights.update"), controller.updateParticipant);
-router.delete("/flights/:flightId/participants/:participantId", ...auth, requireResourceOwnership(getFlightCompanyId, "flightId"), requirePermission("flights.update"), controller.removeParticipant);
+router.patch("/flights/:flightId/participants/:participantId", ...auth, validateIdParams("participantId"), requireResourceOwnership(getFlightCompanyId, "flightId"), requirePermission("flights.update"), controller.updateParticipant);
+router.delete("/flights/:flightId/participants/:participantId", ...auth, validateIdParams("participantId"), requireResourceOwnership(getFlightCompanyId, "flightId"), requirePermission("flights.update"), controller.removeParticipant);
 
 module.exports = router;

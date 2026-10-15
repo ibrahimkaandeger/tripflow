@@ -5,12 +5,15 @@ const {
   requireField,
   requireEnum,
   requirePositiveNumber,
-  requireValidDate,
+  requireIntId,
+  requireDateOnly,
 } = require("../utils/validate");
 const {
   parsePagination,
   buildPaginationMeta,
 } = require("../utils/pagination");
+const { requireMaxLength } = require("../utils/validate");
+const { syncPaymentStatus } = require("./financeSummaryService");
 
 const TYPES = ["INCOME", "EXPENSE", "REFUND"];
 
@@ -57,10 +60,39 @@ function validateInput(body, { partial = false } = {}) {
   requireEnum(body.category, CATEGORIES, "category");
   requireEnum(body.status, STATUSES, "status");
   requirePositiveNumber(body.amount, "amount");
-  requireValidDate(body.transaction_date, "transaction_date");
+  // DATE column: exactly YYYY-MM-DD (an impossible day like
+  // 2026-02-30 would otherwise reach Postgres and fail with a 500).
+  requireDateOnly(body.transaction_date, "transaction_date");
+  requireMaxLength(body.reference_number, 50, "reference_number");
+
+  // participant_id is optional on create; when given it must be a real
+  // integer id, otherwise Postgres rejects it with a 500.
+  if (!partial && body.participant_id !== undefined && body.participant_id !== null && body.participant_id !== "") {
+    requireIntId(body.participant_id, "participant_id");
+  }
+}
+
+// Every list filter is checked before it reaches SQL so bad input is a
+// clean 400 instead of a Postgres cast error (500). Enum filters reuse
+// the same constants the write path validates against.
+function validateListQuery(query) {
+  for (const key of ["tour", "participant", "page", "limit"]) {
+    if (query[key] !== undefined && query[key] !== "") {
+      requireIntId(query[key], key);
+    }
+  }
+
+  requireEnum(query.type || undefined, TYPES, "type");
+  requireEnum(query.category || undefined, CATEGORIES, "category");
+  requireEnum(query.status || undefined, STATUSES, "status");
+  requireEnum(query.currency || undefined, CURRENCIES, "currency");
+
+  requireDateOnly(query.dateFrom || undefined, "dateFrom");
+  requireDateOnly(query.dateTo || undefined, "dateTo");
 }
 
 async function listTransactions(companyId, query) {
+  validateListQuery(query);
   const { page, limit, offset } = parsePagination(query);
 
   const conditions = ["company_id = $1"];
@@ -105,7 +137,7 @@ async function listTransactions(companyId, query) {
     `SELECT *
      FROM finance_transactions
      WHERE ${where}
-     ORDER BY transaction_date DESC
+     ORDER BY transaction_date DESC, id DESC
      LIMIT $${params.length + 1}
      OFFSET $${params.length + 2}`,
     [...params, limit, offset]
@@ -195,7 +227,9 @@ async function createTransaction(companyId, tourId, userId, body) {
       ]
     );
 
-    return result.rows[0];
+    const transaction = result.rows[0];
+    await syncPaymentStatus(transaction.tour_id, transaction.participant_id);
+    return transaction;
   } catch (error) {
     mapDbError(
       error,
@@ -286,7 +320,9 @@ async function updateTransaction(id, body) {
       values
     );
 
-    return result.rows[0];
+    const transaction = result.rows[0];
+    await syncPaymentStatus(transaction.tour_id, transaction.participant_id);
+    return transaction;
   } catch (error) {
     mapDbError(
       error,
@@ -309,7 +345,9 @@ async function cancelTransaction(id) {
     [id]
   );
 
-  return result.rows[0];
+  const transaction = result.rows[0];
+  await syncPaymentStatus(transaction.tour_id, transaction.participant_id);
+  return transaction;
 }
 
 module.exports = {

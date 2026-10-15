@@ -1,11 +1,17 @@
 const pool = require("../config/db");
 const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
-const { requireEnum, requirePositiveNumber, fail } = require("../utils/validate");
+const { requireEnum, requirePositiveNumber, requireIntId, requireMaxLength, fail } = require("../utils/validate");
 
 const STATUSES = ["REGISTERED", "CONFIRMED", "CANCELLED", "COMPLETED"];
 const PAYMENT_STATUSES = ["UNPAID", "PARTIALLY_PAID", "PAID", "REFUNDED"];
 const CURRENCIES = ["TRY", "EUR", "USD", "GBP"];
+
+// Finance-owned columns on tour_participants. Writing them needs
+// finance.update and reading them needs finance.read (see
+// tourParticipantRoutes / utils/financeVisibility).
+const { PARTICIPANT_FINANCIAL_FIELDS: FINANCIAL_FIELDS } = require("../utils/financeVisibility");
+const { syncPaymentStatus } = require("./financeSummaryService");
 
 async function assertParticipantInCompany(participantId, companyId) {
   const result = await pool.query("SELECT id FROM participants WHERE id = $1 AND company_id = $2", [participantId, companyId]);
@@ -35,6 +41,8 @@ async function addParticipantToTour(companyId, tourId, body) {
   if (!participant_id) {
     fail("participant_id zorunludur.");
   }
+  requireIntId(participant_id, "participant_id");
+  requireMaxLength(room_number, 20, "room_number");
   await assertParticipantInCompany(participant_id, companyId);
   requireEnum(status, STATUSES, "status");
   requireEnum(payment_status, PAYMENT_STATUSES, "payment_status");
@@ -61,6 +69,7 @@ async function updateTourParticipant(tourId, participantId, body) {
   requireEnum(payment_status, PAYMENT_STATUSES, "payment_status");
   requireEnum(sale_currency, CURRENCIES, "sale_currency");
   requirePositiveNumber(sale_price, "sale_price");
+  requireMaxLength(room_number, 20, "room_number");
 
   const fields = [];
   const values = [];
@@ -92,6 +101,17 @@ async function updateTourParticipant(tourId, participantId, body) {
       throw new AppError(404, "ASSIGNMENT_NOT_FOUND", "Bu katılımcı bu tura kayıtlı değil.");
     }
 
+    // A new price changes what "paid" means; re-derive the status from
+    // the recorded payments unless the caller set it explicitly.
+    if ((sale_price !== undefined || sale_currency !== undefined) && payment_status === undefined) {
+      await syncPaymentStatus(tourId, participantId);
+      const refreshed = await pool.query(
+        "SELECT * FROM tour_participants WHERE tour_id = $1 AND participant_id = $2",
+        [tourId, participantId]
+      );
+      return refreshed.rows[0];
+    }
+
     return result.rows[0];
   } catch (error) {
     if (error instanceof AppError) throw error;
@@ -110,4 +130,4 @@ async function removeParticipantFromTour(tourId, participantId) {
   }
 }
 
-module.exports = { listTourParticipants, addParticipantToTour, updateTourParticipant, removeParticipantFromTour };
+module.exports = { FINANCIAL_FIELDS, listTourParticipants, addParticipantToTour, updateTourParticipant, removeParticipantFromTour };

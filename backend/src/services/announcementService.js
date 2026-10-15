@@ -1,7 +1,9 @@
 const pool = require("../config/db");
 const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
-const { requireField, requireEnum } = require("../utils/validate");
+const { requireField, requireEnum, requireDateTime, requireMaxLength } = require("../utils/validate");
+const { buildPaginationMeta } = require("../utils/pagination");
+const { parseListQuery } = require("../utils/listQuery");
 
 const PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"];
 const STATUSES = ["DRAFT", "PUBLISHED", "ARCHIVED"];
@@ -28,6 +30,33 @@ function validateInput(body, { partial = false } = {}) {
 
   requireEnum(body.priority, PRIORITIES, "priority");
   requireEnum(body.status, STATUSES, "status");
+  requireMaxLength(body.title, 200, "title");
+  if (body.expires_at) requireDateTime(body.expires_at, "expires_at");
+}
+
+// Every announcement of the company across all tours (newest first),
+// with the tour title. Optional filters: tour, status, search (title).
+async function listAnnouncements(companyId, query) {
+  const { page, limit, offset, tourId, status, search } = parseListQuery(query, { statuses: STATUSES });
+  const conditions = ["t.company_id = $1"];
+  const params = [companyId];
+
+  if (tourId) { params.push(tourId); conditions.push(`a.tour_id = $${params.length}`); }
+  if (status) { params.push(status); conditions.push(`a.status = $${params.length}`); }
+  if (search) { params.push(search); conditions.push(`a.title ILIKE $${params.length}`); }
+
+  const where = conditions.join(" AND ");
+  const count = await pool.query(`SELECT COUNT(*) FROM announcements a JOIN tours t ON t.id = a.tour_id WHERE ${where}`, params);
+  const result = await pool.query(
+    `SELECT a.*, t.title AS tour_title
+     FROM announcements a JOIN tours t ON t.id = a.tour_id
+     WHERE ${where}
+     ORDER BY a.created_at DESC, a.id DESC
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset]
+  );
+
+  return { data: result.rows, pagination: buildPaginationMeta(page, limit, Number(count.rows[0].count)) };
 }
 
 async function listAnnouncementsForTour(tourId) {
@@ -361,6 +390,7 @@ async function listUnreadAnnouncements(userId) {
 }
 
 module.exports = {
+  listAnnouncements,
   listAnnouncementsForTour,
   getAnnouncementById,
   createAnnouncement,

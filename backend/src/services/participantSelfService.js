@@ -111,7 +111,7 @@ async function getMyTourPayments(tourId, participantId) {
     `SELECT id, type, category, amount, currency, status, transaction_date, description, reference_number
      FROM finance_transactions
      WHERE tour_id = $1 AND participant_id = $2
-     ORDER BY transaction_date DESC`,
+     ORDER BY transaction_date DESC, id DESC`,
     [tourId, participantId]
   );
 

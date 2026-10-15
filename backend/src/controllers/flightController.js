@@ -1,8 +1,12 @@
 const asyncHandler = require("../utils/asyncHandler");
-const { sendSuccess } = require("../utils/response");
+const { sendSuccess, sendList } = require("../utils/response");
 const flightService = require("../services/flightService");
 
 const list = asyncHandler(async (req, res) => sendSuccess(res, await flightService.listFlightsForTour(req.params.tourId)));
+const listAll = asyncHandler(async (req, res) => {
+  const { data, pagination } = await flightService.listFlights(req.membership.companyId, req.query);
+  sendList(res, data, pagination);
+});
 const create = asyncHandler(async (req, res) => sendSuccess(res, await flightService.createFlight(req.params.tourId, req.body), 201));
 const getById = asyncHandler(async (req, res) => sendSuccess(res, await flightService.getFlightById(req.params.id)));
 const update = asyncHandler(async (req, res) => sendSuccess(res, await flightService.updateFlight(req.params.id, req.body)));
@@ -12,4 +16,4 @@ const addParticipant = asyncHandler(async (req, res) => sendSuccess(res, await f
 const updateParticipant = asyncHandler(async (req, res) => sendSuccess(res, await flightService.updateFlightParticipant(req.params.flightId, req.params.participantId, req.body)));
 const removeParticipant = asyncHandler(async (req, res) => { await flightService.removeFlightParticipant(req.params.flightId, req.params.participantId); res.status(204).send(); });
 
-module.exports = { list, create, getById, update, remove, addParticipant, updateParticipant, removeParticipant };
+module.exports = { list, listAll, create, getById, update, remove, addParticipant, updateParticipant, removeParticipant };

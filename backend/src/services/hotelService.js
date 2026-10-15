@@ -1,7 +1,9 @@
 const pool = require("../config/db");
 const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
-const { requireField, requireEnum, requirePositiveNumber, requireValidDate, fail } = require("../utils/validate");
+const { requireField, requireEnum, requirePositiveNumber, requireDateOnly, requireMaxLength, requireIntId, fail } = require("../utils/validate");
+const { buildPaginationMeta } = require("../utils/pagination");
+const { parseListQuery } = require("../utils/listQuery");
 
 const HOTEL_STATUSES = ["PENDING", "CONFIRMED", "CANCELLED", "COMPLETED"];
 const ROOM_STATUSES = ["ACTIVE", "CANCELLED"];
@@ -33,8 +35,12 @@ function validateHotelInput(body, { partial = false } = {}) {
   if (!partial || body.check_in !== undefined) requireField(body, "check_in");
   if (!partial || body.check_out !== undefined) requireField(body, "check_out");
 
-  requireValidDate(body.check_in, "check_in");
-  requireValidDate(body.check_out, "check_out");
+  requireDateOnly(body.check_in, "check_in");
+  requireDateOnly(body.check_out, "check_out");
+
+  // VARCHAR limits from 009_hotels.sql.
+  const maxLengths = { hotel_name: 200, city: 100, country: 100, booking_reference: 50 };
+  for (const [field, max] of Object.entries(maxLengths)) requireMaxLength(body[field], max, field);
 
   if (body.check_in && body.check_out && new Date(body.check_out) < new Date(body.check_in)) {
     fail("check_out, check_in tarihinden önce olamaz.");
@@ -48,6 +54,36 @@ function validateHotelInput(body, { partial = false } = {}) {
 async function listHotelsForTour(tourId) {
   const result = await pool.query("SELECT * FROM hotels WHERE tour_id = $1 ORDER BY check_in", [tourId]);
   return result.rows;
+}
+
+// Every hotel booking of the company across all tours, by check-in
+// date (newest first), with the tour title. Optional filters: tour,
+// status, search (hotel name / city / country).
+async function listHotels(companyId, query) {
+  const { page, limit, offset, tourId, status, search } = parseListQuery(query, { statuses: HOTEL_STATUSES });
+  const conditions = ["t.company_id = $1"];
+  const params = [companyId];
+
+  if (tourId) { params.push(tourId); conditions.push(`h.tour_id = $${params.length}`); }
+  if (status) { params.push(status); conditions.push(`h.status = $${params.length}`); }
+  if (search) {
+    params.push(search);
+    const p = `$${params.length}`;
+    conditions.push(`(h.hotel_name ILIKE ${p} OR h.city ILIKE ${p} OR h.country ILIKE ${p})`);
+  }
+
+  const where = conditions.join(" AND ");
+  const count = await pool.query(`SELECT COUNT(*) FROM hotels h JOIN tours t ON t.id = h.tour_id WHERE ${where}`, params);
+  const result = await pool.query(
+    `SELECT h.*, t.title AS tour_title
+     FROM hotels h JOIN tours t ON t.id = h.tour_id
+     WHERE ${where}
+     ORDER BY h.check_in DESC, h.id DESC
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset]
+  );
+
+  return { data: result.rows, pagination: buildPaginationMeta(page, limit, Number(count.rows[0].count)) };
 }
 
 async function getHotelById(id) {
@@ -151,9 +187,10 @@ async function deleteRoom(id) {
 async function addRoomParticipant(roomId, body) {
   const { participant_id, check_in, check_out, status } = body;
   if (!participant_id) fail("participant_id zorunludur.");
+  requireIntId(participant_id, "participant_id");
   requireEnum(status, ROOM_PARTICIPANT_STATUSES, "status");
-  requireValidDate(check_in, "check_in");
-  requireValidDate(check_out, "check_out");
+  requireDateOnly(check_in, "check_in");
+  requireDateOnly(check_out, "check_out");
 
   try {
     const result = await pool.query(
@@ -172,8 +209,12 @@ async function addRoomParticipant(roomId, body) {
 
 async function updateRoomParticipant(roomId, participantId, body) {
   requireEnum(body.status, ROOM_PARTICIPANT_STATUSES, "status");
-  requireValidDate(body.check_in, "check_in");
-  requireValidDate(body.check_out, "check_out");
+  requireDateOnly(body.check_in, "check_in");
+  requireDateOnly(body.check_out, "check_out");
+
+  // VARCHAR limits from 009_hotels.sql.
+  const maxLengths = { hotel_name: 200, city: 100, country: 100, booking_reference: 50 };
+  for (const [field, max] of Object.entries(maxLengths)) requireMaxLength(body[field], max, field);
 
   const { fields, values, i } = buildUpdate(ROOM_PARTICIPANT_FIELDS, body);
   if (fields.length === 0) throw new AppError(400, "VALIDATION_ERROR", "Güncellenecek en az bir alan gerekli.");
@@ -218,7 +259,7 @@ function buildUpdate(allowedFields, body) {
 }
 
 module.exports = {
-  listHotelsForTour, getHotelById, createHotel, updateHotel, deleteHotel,
+  listHotelsForTour, listHotels, getHotelById, createHotel, updateHotel, deleteHotel,
   listRoomsForHotel, getRoomById, createRoom, updateRoom, deleteRoom,
   addRoomParticipant, updateRoomParticipant, removeRoomParticipant,
 };

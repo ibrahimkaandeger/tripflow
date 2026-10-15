@@ -3,6 +3,9 @@ const AppError = require("../utils/AppError");
 const { mapDbError } = require("../utils/dbErrors");
 const { parsePagination, buildPaginationMeta } = require("../utils/pagination");
 const { getPermissionKeysForRole, assertWithinActorCeiling } = require("./permissionCeilingService");
+const { requireIntId, requireEnum, fail } = require("../utils/validate");
+
+const STATUSES = ["ACTIVE", "INACTIVE", "SUSPENDED"];
 
 // role_id must either be a global role (company_id IS NULL) or a
 // custom role that belongs to THIS company -- never another
@@ -85,17 +88,37 @@ async function getCompanyUserById(companyId, id) {
   return result.rows[0];
 }
 
+// The member being changed must not hold permissions the actor lacks:
+// otherwise e.g. an ADMIN could deactivate or re-role the OWNER.
+async function assertActorCanManageMember(actorRoleId, targetRoleId) {
+  const targetKeys = await getPermissionKeysForRole(targetRoleId);
+  await assertWithinActorCeiling(actorRoleId, targetKeys, "Düzenlemek istediğiniz üyenin rolü");
+}
+
+// Adds an existing TripFlow account to the company, identified either
+// by user_id or (as the UI does) by the email it registered with.
 async function createCompanyUser(companyId, actorRoleId, body) {
-  const { user_id, role_id, status } = body;
+  const { role_id, status } = body;
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
 
-  if (!user_id || !role_id) {
-    throw new AppError(400, "VALIDATION_ERROR", "user_id ve role_id zorunludur.");
+  if ((!body.user_id && !email) || !role_id) {
+    throw new AppError(400, "VALIDATION_ERROR", "user_id veya email ile role_id zorunludur.");
   }
+  requireIntId(role_id, "role_id");
+  if (body.user_id) requireIntId(body.user_id, "user_id");
+  requireEnum(status, STATUSES, "status");
 
-  const userExists = await pool.query("SELECT id FROM users WHERE id = $1", [user_id]);
-  if (userExists.rows.length === 0) {
-    throw new AppError(400, "INVALID_REFERENCE", "Geçersiz kullanıcı.");
+  const userLookup = body.user_id
+    ? await pool.query("SELECT id FROM users WHERE id = $1", [body.user_id])
+    : await pool.query("SELECT id FROM users WHERE LOWER(email) = $1", [email]);
+  if (userLookup.rows.length === 0) {
+    throw new AppError(
+      400,
+      "INVALID_REFERENCE",
+      email ? "Bu e-posta ile kayıtlı bir kullanıcı bulunamadı. Kişinin önce TripFlow'a kayıt olması gerekir." : "Geçersiz kullanıcı."
+    );
   }
+  const user_id = userLookup.rows[0].id;
 
   await assertRoleUsableByCompany(role_id, companyId);
   await assertActorCanGrantRole(actorRoleId, role_id);
@@ -113,15 +136,29 @@ async function createCompanyUser(companyId, actorRoleId, body) {
   }
 }
 
-async function updateCompanyUser(companyId, actorRoleId, id, body) {
+async function updateCompanyUser(companyId, actorRoleId, actorUserId, id, body) {
   const { role_id, status } = body;
+  if (role_id !== undefined) requireIntId(role_id, "role_id");
+  requireEnum(status, STATUSES, "status");
+
+  // Granting check first: handing out a role above your own ceiling is
+  // refused the same way whether the target is you or someone else.
+  if (role_id !== undefined) {
+    await assertRoleUsableByCompany(role_id, companyId);
+    await assertActorCanGrantRole(actorRoleId, role_id);
+  }
+
+  const target = await getCompanyUserById(companyId, id);
+  if (target.user_id === actorUserId) {
+    fail("Kendi üyeliğinizin rolünü veya durumunu değiştiremezsiniz.");
+  }
+  await assertActorCanManageMember(actorRoleId, target.role_id);
+
   const fields = [];
   const values = [];
   let i = 1;
 
   if (role_id !== undefined) {
-    await assertRoleUsableByCompany(role_id, companyId);
-    await assertActorCanGrantRole(actorRoleId, role_id);
     fields.push(`role_id = $${i}`);
     values.push(role_id);
     i++;
